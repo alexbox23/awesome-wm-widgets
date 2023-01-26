@@ -283,11 +283,46 @@ local function worker(user_args)
         update = function(self, forecast, timezone_offset)
             local count = #self
             for i = 0, count do self[i]=nil end
+
+            -- Collect 3-hour data into 5-day data
+            local abridged_forecast = {}
             for i, data in ipairs(forecast) do
+                local current_data = {
+                    day_of_week = os.date('%a', tonumber(data.dt) + tonumber(timezone_offset)),
+                    weather_icon = data.weather[1].icon,
+                    weather_description = data.weather[1].description,
+                    -- Use coordinate temp, main.temp_min/temp_max are city-wide
+                    temp_max = data.main.temp,
+                    temp_min = data.main.temp,
+                }
+
+                local length = #abridged_forecast
+                local last_data = (length == 0 and nil or abridged_forecast[length])
+
+                if last_data == nil or current_data.day_of_week ~= last_data.day_of_week then
+                    table.insert(abridged_forecast, current_data)
+                else
+                    if current_data.temp_max > last_data.temp_max then
+                        abridged_forecast[length].temp_max = current_data.temp_max
+                    end
+                    if current_data.temp_min < last_data.temp_min then
+                        abridged_forecast[length].temp_min = current_data.temp_min
+                    end
+                    -- Naively show the largest as the "most unique" weather condition
+                    local current_icon_num = tonumber(current_data.weather_icon:sub(1, -2))
+                    local last_icon_num = tonumber(last_data.weather_icon:sub(1, -2))
+                    if current_icon_num > last_icon_num then
+                        abridged_forecast[length].weather_icon = current_data.weather_icon
+                        abridged_forecast[length].weather_description = current_data.weather_description
+                    end
+                end
+            end
+
+            for i, data in ipairs(abridged_forecast) do
                 if i > 5 then break end
                 local day_forecast = wibox.widget {
                     {
-                        text = os.date('%a', tonumber(data.dt) + tonumber(timezone_offset)),
+                        text = data.day_of_week,
                         align = 'center',
                         font = font_name .. ' 9',
                         widget = wibox.widget.textbox
@@ -295,7 +330,7 @@ local function worker(user_args)
                     {
                         {
                             {
-                                image = ICONS_DIR .. icon_map[data.weather[1].icon] .. icons_extension,
+                                image = ICONS_DIR .. icon_map[data.weather_icon] .. icons_extension,
                                 resize = true,
                                 forced_width = 48,
                                 forced_height = 48,
@@ -305,7 +340,7 @@ local function worker(user_args)
                             layout = wibox.container.place
                         },
                         {
-                            text = data.weather[1].description,
+                            text = data.weather_description,
                             font = font_name .. ' 8',
                             align = 'center',
                             forced_height = 50,
@@ -315,13 +350,13 @@ local function worker(user_args)
                     },
                     {
                         {
-                            text = gen_temperature_str(data.main.temp_max, '%.0f', false, units),
+                            text = gen_temperature_str(data.temp_max, '%.0f', false, units),
                             align = 'center',
                             font = font_name .. ' 9',
                             widget = wibox.widget.textbox
                         },
                         {
-                            text = gen_temperature_str(data.main.temp_min, '%.0f', false, units),
+                            text = gen_temperature_str(data.temp_min, '%.0f', false, units),
                             align = 'center',
                             font = font_name .. ' 9',
                             widget = wibox.widget.textbox
