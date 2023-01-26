@@ -145,20 +145,18 @@ local function worker(user_args)
     local units = args.units or 'metric'
     local time_format_12h = args.time_format_12h
     local both_units_widget = args.both_units_widget or false
-    local show_hourly_forecast = args.show_hourly_forecast
-    local show_daily_forecast = args.show_daily_forecast
+    local show_hourly_forecast = args.show_hourly_forecast or false
+    local show_daily_forecast = args.show_daily_forecast or false
     local icon_pack_name = args.icons or 'weather-underground-icons'
     local icons_extension = args.icons_extension or '.png'
     local timeout = args.timeout or 120
 
     local ICONS_DIR = WIDGET_DIR .. '/icons/' .. icon_pack_name .. '/'
-    local owm_one_cal_api =
-        ('https://api.openweathermap.org/data/2.5/onecall' ..
+
+    local owm_forecast_api =
+        ('https://api.openweathermap.org/data/2.5/forecast' ..
             '?lat=' .. coordinates[1] .. '&lon=' .. coordinates[2] .. '&appid=' .. api_key ..
-            '&units=' .. units .. '&exclude=minutely' ..
-            (show_hourly_forecast == false and ',hourly' or '') ..
-            (show_daily_forecast == false and ',daily' or '') ..
-            '&lang=' .. LANG)
+            '&units=' .. units .. '&lang=' .. LANG)
 
     weather_widget = wibox.widget {
         {
@@ -268,14 +266,13 @@ local function worker(user_args)
         update = function(self, weather)
             self:get_children_by_id('icon')[1]:set_image(
                 ICONS_DIR .. icon_map[weather.weather[1].icon] .. icons_extension)
-            self:get_children_by_id('temp')[1]:set_text(gen_temperature_str(weather.temp, '%.0f', false, units))
+            self:get_children_by_id('temp')[1]:set_text(gen_temperature_str(weather.main.temp, '%.0f', false, units))
             self:get_children_by_id('feels_like_temp')[1]:set_text(
-                LCLE.feels_like .. gen_temperature_str(weather.feels_like, '%.0f', false, units))
+                LCLE.feels_like .. gen_temperature_str(weather.main.feels_like, '%.0f', false, units))
             self:get_children_by_id('description')[1]:set_text(weather.weather[1].description)
             self:get_children_by_id('wind')[1]:set_markup(
-                LCLE.wind .. '<b>' .. weather.wind_speed .. 'm/s (' .. to_direction(weather.wind_deg) .. ')</b>')
-            self:get_children_by_id('humidity')[1]:set_markup(LCLE.humidity .. '<b>' .. weather.humidity .. '%</b>')
-            self:get_children_by_id('uv')[1]:set_markup(LCLE.uv .. uvi_index_color(weather.uvi))
+                LCLE.wind .. '<b>' .. weather.wind.speed .. 'm/s (' .. to_direction(weather.wind.deg) .. ')</b>')
+            self:get_children_by_id('humidity')[1]:set_markup(LCLE.humidity .. '<b>' .. weather.main.humidity .. '%</b>')
         end
     }
 
@@ -286,11 +283,11 @@ local function worker(user_args)
         update = function(self, forecast, timezone_offset)
             local count = #self
             for i = 0, count do self[i]=nil end
-            for i, day in ipairs(forecast) do
+            for i, data in ipairs(forecast) do
                 if i > 5 then break end
                 local day_forecast = wibox.widget {
                     {
-                        text = os.date('%a', tonumber(day.dt) + tonumber(timezone_offset)),
+                        text = os.date('%a', tonumber(data.dt) + tonumber(timezone_offset)),
                         align = 'center',
                         font = font_name .. ' 9',
                         widget = wibox.widget.textbox
@@ -298,7 +295,7 @@ local function worker(user_args)
                     {
                         {
                             {
-                                image = ICONS_DIR .. icon_map[day.weather[1].icon] .. icons_extension,
+                                image = ICONS_DIR .. icon_map[data.weather[1].icon] .. icons_extension,
                                 resize = true,
                                 forced_width = 48,
                                 forced_height = 48,
@@ -308,7 +305,7 @@ local function worker(user_args)
                             layout = wibox.container.place
                         },
                         {
-                            text = day.weather[1].description,
+                            text = data.weather[1].description,
                             font = font_name .. ' 8',
                             align = 'center',
                             forced_height = 50,
@@ -318,13 +315,13 @@ local function worker(user_args)
                     },
                     {
                         {
-                            text = gen_temperature_str(day.temp.day, '%.0f', false, units),
+                            text = gen_temperature_str(data.main.temp_max, '%.0f', false, units),
                             align = 'center',
                             font = font_name .. ' 9',
                             widget = wibox.widget.textbox
                         },
                         {
-                            text = gen_temperature_str(day.temp.night, '%.0f', false, units),
+                            text = gen_temperature_str(data.main.temp_min, '%.0f', false, units),
                             align = 'center',
                             font = font_name .. ' 9',
                             widget = wibox.widget.textbox
@@ -370,7 +367,7 @@ local function worker(user_args)
 
     local hourly_forecast_widget = {
         layout = wibox.layout.fixed.vertical,
-        update = function(self, hourly)
+        update = function(self, forecast)
             local hours_below = {
                 id = 'hours',
                 forced_width = 300,
@@ -385,23 +382,24 @@ local function worker(user_args)
             local max_temp = -1000
             local min_temp = 1000
             local values = {}
-            for i, hour in ipairs(hourly) do
+            for i, data in ipairs(forecast) do
                 if i > 25 then break end
-                values[i] = hour.temp
-                if max_temp < hour.temp then max_temp = hour.temp end
-                if min_temp > hour.temp then min_temp = hour.temp end
-                if (i - 1) % 5 == 0 then
+                local hour_temp = data.main.temp
+                values[i] = hour_temp
+                if max_temp < hour_temp then max_temp = hour_temp end
+                if min_temp > hour_temp then min_temp = hour_temp end
+                if (i - 1) % 4 == 0 then
                     table.insert(hours_below, wibox.widget {
-                        text = os.date(time_format_12h and '%I%p' or '%H:00', tonumber(hour.dt)),
-                        align = 'center',
+                        text = os.date(time_format_12h and '%I%p' or '%H:00', tonumber(data.dt)),
+                        align = 'left',
                         font = font_name .. ' 9',
                         widget = wibox.widget.textbox
                     })
                     table.insert(temp_below, wibox.widget {
                         markup = '<span foreground="'
-                                .. (tonumber(hour.temp) > 0 and '#2E3440' or '#ECEFF4') .. '">'
-                                .. string.format('%.0f', hour.temp) .. '°' .. '</span>',
-                        align = 'center',
+                                .. (tonumber(hour_temp) > 0 and '#2E3440' or '#ECEFF4') .. '">'
+                                .. string.format('%.0f', hour_temp) .. '°' .. '</span>',
+                        align = 'left',
                         font = font_name .. ' 9',
                         widget = wibox.widget.textbox
                     })
@@ -521,10 +519,12 @@ local function worker(user_args)
 
         local result = json.decode(stdout)
 
-        widget:set_image(ICONS_DIR .. icon_map[result.current.weather[1].icon] .. icons_extension)
-        widget:set_text(gen_temperature_str(result.current.temp, '%.0f', both_units_widget, units))
+        local current_data = result.list[1]
 
-        current_weather_widget:update(result.current)
+        widget:set_image(ICONS_DIR .. icon_map[current_data.weather[1].icon] .. icons_extension)
+        widget:set_text(gen_temperature_str(current_data.main.temp, '%.0f', both_units_widget, units))
+
+        current_weather_widget:update(current_data)
 
         local final_widget = {
             current_weather_widget,
@@ -533,12 +533,12 @@ local function worker(user_args)
         }
 
         if show_hourly_forecast then
-            hourly_forecast_widget:update(result.hourly)
+            hourly_forecast_widget:update(result.list)
             table.insert(final_widget, hourly_forecast_widget)
         end
 
         if show_daily_forecast then
-            daily_forecast_widget:update(result.daily, result.timezone_offset)
+            daily_forecast_widget:update(result.list, result.city.timezone)
             table.insert(final_widget, daily_forecast_widget)
         end
 
@@ -564,8 +564,8 @@ local function worker(user_args)
         end)))
 
     watch(
-        string.format(GET_FORECAST_CMD, owm_one_cal_api),
-        timeout,  -- API limit is 1k req/day; day has 1440 min; every 2 min is good
+        string.format(GET_FORECAST_CMD, owm_forecast_api),
+        timeout,  -- API limit is 60 req/min for the free plan
         update_widget, weather_widget
     )
 
