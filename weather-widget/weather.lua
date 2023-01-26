@@ -81,6 +81,19 @@ local icon_map = {
     ["50n"] = "mist-night"
 }
 
+-- Parser functions for icon keys
+local function parse_icon_num(icon)
+    return tonumber(icon:sub(1, -2))
+end
+
+local function icon_is_day(icon)
+    return icon:sub(-1) == 'd'
+end
+
+local function gen_time_str(epoch_time, time_format_12h)
+    return os.date(time_format_12h and '%I %p' or '%H:00', epoch_time)
+end
+
 --- Return wind direction as a string
 local function to_direction(degrees)
     -- Ref: https://www.campbellsci.eu/blog/convert-wind-directions
@@ -143,7 +156,7 @@ local function worker(user_args)
     local api_key = args.api_key
     local font_name = args.font_name or beautiful.font:gsub("%s%d+$", "")
     local units = args.units or 'metric'
-    local time_format_12h = args.time_format_12h
+    local time_format_12h = args.time_format_12h or false
     local both_units_widget = args.both_units_widget or false
     local show_hourly_forecast = args.show_hourly_forecast or false
     local show_daily_forecast = args.show_daily_forecast or false
@@ -272,7 +285,7 @@ local function worker(user_args)
                 ICONS_DIR .. icon_map[weather.weather[1].icon] .. icons_extension)
             self:get_children_by_id('temp')[1]:set_text(gen_temperature_str(weather.main.temp, '%.0f', false, units))
             self:get_children_by_id('feels_like_temp')[1]:set_text(
-                LCLE.feels_like .. gen_temperature_str(weather.main.feels_like, '%.0f', false, units))
+                LCLE.feels_like .. gen_temperature_str(weather.main.feels_like, '%.0f', true, units))
             self:get_children_by_id('description')[1]:set_text(weather.weather[1].description)
             self:get_children_by_id('wind')[1]:set_markup(
                 LCLE.wind .. '<b>' .. weather.wind.speed .. ' ' ..
@@ -286,7 +299,7 @@ local function worker(user_args)
     local daily_forecast_widget = {
         forced_width = 300,
         layout = wibox.layout.flex.horizontal,
-        update = function(self, forecast, timezone_offset)
+        update = function(self, forecast)
             local count = #self
             for i = 0, count do self[i]=nil end
 
@@ -294,12 +307,15 @@ local function worker(user_args)
             local abridged_forecast = {}
             for i, data in ipairs(forecast) do
                 local current_data = {
-                    day_of_week = os.date('%a', tonumber(data.dt) + tonumber(timezone_offset)),
-                    weather_icon = data.weather[1].icon,
-                    weather_description = data.weather[1].description,
+                    day_of_week = os.date('%a', data.dt),
                     -- Use coordinate temp, main.temp_min/temp_max are city-wide
                     temp_max = data.main.temp,
                     temp_min = data.main.temp,
+                    weather = {
+                        icon = data.weather[1].icon,
+                        description = data.weather[1].description,
+                        time = gen_time_str(data.dt, time_format_12h),
+                    }
                 }
 
                 local length = #abridged_forecast
@@ -314,12 +330,15 @@ local function worker(user_args)
                     if current_data.temp_min < last_data.temp_min then
                         abridged_forecast[length].temp_min = current_data.temp_min
                     end
-                    -- Naively show the largest as the "most unique" weather condition
-                    local current_icon_num = tonumber(current_data.weather_icon:sub(1, -2))
-                    local last_icon_num = tonumber(last_data.weather_icon:sub(1, -2))
-                    if current_icon_num > last_icon_num then
-                        abridged_forecast[length].weather_icon = current_data.weather_icon
-                        abridged_forecast[length].weather_description = current_data.weather_description
+
+                    local current_icon_num = parse_icon_num(current_data.weather.icon)
+                    local last_icon_num = parse_icon_num(last_data.weather.icon)
+                    -- Naively show the largest as the "most unique" weather condition.
+                    -- If they are equal, prioritize showing the daytime icon.
+                    if (current_icon_num > last_icon_num) or (current_icon_num == last_icon_num and
+                            icon_is_day(current_data.weather.icon) and
+                            not icon_is_day(last_data.weather.icon)) then
+                        abridged_forecast[length].weather = current_data.weather
                     end
                 end
             end
@@ -336,7 +355,7 @@ local function worker(user_args)
                     {
                         {
                             {
-                                image = ICONS_DIR .. icon_map[data.weather_icon] .. icons_extension,
+                                image = ICONS_DIR .. icon_map[data.weather.icon] .. icons_extension,
                                 resize = true,
                                 forced_width = 48,
                                 forced_height = 48,
@@ -346,7 +365,7 @@ local function worker(user_args)
                             layout = wibox.container.place
                         },
                         {
-                            text = data.weather_description,
+                            text = data.weather.description .. '\n' .. data.weather.time,
                             font = font_name .. ' 8',
                             align = 'center',
                             forced_height = 50,
@@ -356,13 +375,13 @@ local function worker(user_args)
                     },
                     {
                         {
-                            text = gen_temperature_str(data.temp_max, '%.0f', false, units),
+                            text = '\u{25b2} ' .. gen_temperature_str(data.temp_max, '%.0f', false, units),
                             align = 'center',
                             font = font_name .. ' 9',
                             widget = wibox.widget.textbox
                         },
                         {
-                            text = gen_temperature_str(data.temp_min, '%.0f', false, units),
+                            text = '\u{25bd} ' .. gen_temperature_str(data.temp_min, '%.0f', false, units),
                             align = 'center',
                             font = font_name .. ' 9',
                             widget = wibox.widget.textbox
@@ -431,7 +450,7 @@ local function worker(user_args)
                 if min_temp > hour_temp then min_temp = hour_temp end
                 if (i - 1) % 4 == 0 then
                     table.insert(hours_below, wibox.widget {
-                        text = os.date(time_format_12h and '%I%p' or '%H:00', tonumber(data.dt)),
+                        text = gen_time_str(data.dt, time_format_12h),
                         align = 'left',
                         font = font_name .. ' 9',
                         widget = wibox.widget.textbox
@@ -615,7 +634,7 @@ local function worker(user_args)
             hourly_forecast_widget:update(forecast_data.list)
         end
         if show_daily_forecast then
-            daily_forecast_widget:update(forecast_data.list, forecast_data.city.timezone)
+            daily_forecast_widget:update(forecast_data.list)
         end
 
         refresh_popup()
