@@ -275,7 +275,9 @@ local function worker(user_args)
                 LCLE.feels_like .. gen_temperature_str(weather.main.feels_like, '%.0f', false, units))
             self:get_children_by_id('description')[1]:set_text(weather.weather[1].description)
             self:get_children_by_id('wind')[1]:set_markup(
-                LCLE.wind .. '<b>' .. weather.wind.speed .. 'm/s (' .. to_direction(weather.wind.deg) .. ')</b>')
+                LCLE.wind .. '<b>' .. weather.wind.speed .. ' ' ..
+                (units == 'metric' and 'm/s' or 'mph') ..
+                ' (' .. to_direction(weather.wind.deg) .. ')</b>')
             self:get_children_by_id('humidity')[1]:set_markup(LCLE.humidity .. '<b>' .. weather.main.humidity .. '%</b>')
         end
     }
