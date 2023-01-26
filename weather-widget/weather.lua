@@ -15,7 +15,7 @@ local beautiful = require("beautiful")
 
 local HOME_DIR = os.getenv("HOME")
 local WIDGET_DIR = HOME_DIR .. '/.config/awesome/awesome-wm-widgets/weather-widget'
-local GET_FORECAST_CMD = [[bash -c "curl -s --show-error -X GET '%s'"]]
+local CALL_API_CMD = [[bash -c "curl -s --show-error -X GET '%s'"]]
 
 local SYS_LANG = os.getenv("LANG"):sub(1, 2)
 if SYS_LANG == "C" or SYS_LANG == "C." then
@@ -149,14 +149,18 @@ local function worker(user_args)
     local show_daily_forecast = args.show_daily_forecast or false
     local icon_pack_name = args.icons or 'weather-underground-icons'
     local icons_extension = args.icons_extension or '.png'
-    local timeout = args.timeout or 120
+
+    -- API limit is 60 calls/min for the free plan
+    local current_weather_timeout = args.current_weather_timeout or 30
+    local forecast_timeout = args.forecast_timeout or 180
 
     local ICONS_DIR = WIDGET_DIR .. '/icons/' .. icon_pack_name .. '/'
 
-    local owm_forecast_api =
-        ('https://api.openweathermap.org/data/2.5/forecast' ..
-            '?lat=' .. coordinates[1] .. '&lon=' .. coordinates[2] .. '&appid=' .. api_key ..
-            '&units=' .. units .. '&lang=' .. LANG)
+    local owm_api_options = ('?lat=' .. coordinates[1] .. '&lon=' .. coordinates[2] ..
+        '&appid=' .. api_key .. '&units=' .. units .. '&lang=' .. LANG)
+
+    local owm_weather_api = 'https://api.openweathermap.org/data/2.5/weather' .. owm_api_options
+    local owm_forecast_api = 'https://api.openweathermap.org/data/2.5/forecast' .. owm_api_options
 
     weather_widget = wibox.widget {
         {
@@ -530,7 +534,8 @@ local function worker(user_args)
         end
     }
 
-    local function update_widget(widget, stdout, stderr)
+    -- Handle non-empty stderr, and return warning_shown
+    local function handle_stderr(widget, stderr)
         if stderr ~= '' then
             if not warning_shown then
                 if (stderr ~= 'curl: (52) Empty reply from server'
@@ -545,22 +550,17 @@ local function worker(user_args)
 
                 widget:connect_signal('mouse::enter', function() tooltip.text = stderr end)
             end
-            return
+        else
+            warning_shown = false
+            tooltip:remove_from_object(widget)
+            widget:is_ok(true)
         end
 
-        warning_shown = false
-        tooltip:remove_from_object(widget)
-        widget:is_ok(true)
+        return warning_shown
+    end
 
-        local result = json.decode(stdout)
-
-        local current_data = result.list[1]
-
-        widget:set_image(ICONS_DIR .. icon_map[current_data.weather[1].icon] .. icons_extension)
-        widget:set_text(gen_temperature_str(current_data.main.temp, '%.0f', both_units_widget, units))
-
-        current_weather_widget:update(current_data)
-
+    -- Rethink what to render in the popup widget
+    local function refresh_popup()
         local final_widget = {
             current_weather_widget,
             spacing = 16,
@@ -568,12 +568,9 @@ local function worker(user_args)
         }
 
         if show_hourly_forecast then
-            hourly_forecast_widget:update(result.list)
             table.insert(final_widget, hourly_forecast_widget)
         end
-
         if show_daily_forecast then
-            daily_forecast_widget:update(result.list, result.city.timezone)
             table.insert(final_widget, daily_forecast_widget)
         end
 
@@ -588,6 +585,40 @@ local function worker(user_args)
         })
     end
 
+    -- Callback for the current weather API response
+    local function update_current_weather(widget, stdout, stderr)
+        if handle_stderr(widget, stderr) then
+            return
+        end
+
+        local current_data = json.decode(stdout)
+
+        widget:set_image(ICONS_DIR .. icon_map[current_data.weather[1].icon] .. icons_extension)
+        widget:set_text(gen_temperature_str(current_data.main.temp, '%.0f', both_units_widget, units))
+
+        current_weather_widget:update(current_data)
+
+        refresh_popup()
+    end
+
+    -- Callback for the forecast API response
+    local function update_forecast(widget, stdout, stderr)
+        if handle_stderr(widget, stderr) then
+            return
+        end
+
+        local forecast_data = json.decode(stdout)
+
+        if show_hourly_forecast then
+            hourly_forecast_widget:update(forecast_data.list)
+        end
+        if show_daily_forecast then
+            daily_forecast_widget:update(forecast_data.list, forecast_data.city.timezone)
+        end
+
+        refresh_popup()
+    end
+
     weather_widget:buttons(gears.table.join(awful.button({}, 1, function()
             if weather_popup.visible then
                 weather_widget:set_bg('#00000000')
@@ -599,9 +630,15 @@ local function worker(user_args)
         end)))
 
     watch(
-        string.format(GET_FORECAST_CMD, owm_forecast_api),
-        timeout,  -- API limit is 60 req/min for the free plan
-        update_widget, weather_widget
+        string.format(CALL_API_CMD, owm_weather_api),
+        current_weather_timeout,
+        update_current_weather, weather_widget
+    )
+
+    watch(
+        string.format(CALL_API_CMD, owm_forecast_api),
+        forecast_timeout,
+        update_forecast, weather_widget
     )
 
     return weather_widget
