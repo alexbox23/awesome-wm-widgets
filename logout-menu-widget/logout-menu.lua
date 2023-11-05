@@ -115,12 +115,16 @@ local function worker(user_args)
     end
     popup:setup(rows)
 
+    function logout_menu_widget.hide()
+        popup.visible = false
+        logout_menu_widget:set_bg('#00000000')
+    end
+
     logout_menu_widget:buttons(
             awful.util.table.join(
                     awful.button({}, 1, function()
                         if popup.visible then
-                            popup.visible = not popup.visible
-                            logout_menu_widget:set_bg('#00000000')
+                            logout_menu_widget.hide()
                         else
                             popup:move_next_to(mouse.current_widget_geometry)
                             logout_menu_widget:set_bg(beautiful.bg_focus)

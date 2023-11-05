@@ -640,10 +640,14 @@ local function worker(user_args)
         refresh_popup()
     end
 
+    function weather_widget.hide()
+        weather_widget:set_bg('#00000000')
+        weather_popup.visible = false
+    end
+
     weather_widget:buttons(gears.table.join(awful.button({}, 1, function()
             if weather_popup.visible then
-                weather_widget:set_bg('#00000000')
-                weather_popup.visible = not weather_popup.visible
+                weather_widget.hide()
             else
                 weather_widget:set_bg(beautiful.bg_focus)
                 weather_popup:move_next_to(mouse.current_widget_geometry)

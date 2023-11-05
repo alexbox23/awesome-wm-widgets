@@ -203,11 +203,15 @@ local function worker(user_args)
         end
     end
 
+    function volume.widget.hide()
+        popup.visible = false
+    end
+
     volume.widget:buttons(
             awful.util.table.join(
                     awful.button({}, 3, function()
                         if popup.visible then
-                            popup.visible = not popup.visible
+                            volume.widget.hide()
                         else
                             rebuild_popup()
                             popup:move_next_to(mouse.current_widget_geometry)

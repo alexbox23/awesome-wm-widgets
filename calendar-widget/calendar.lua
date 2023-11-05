@@ -249,6 +249,12 @@ local function worker(user_args)
         end
     end
 
+    function calendar_widget.hide()
+        if popup.visible then
+            calendar_widget.toggle()
+        end
+    end
+
     return calendar_widget
 
 end

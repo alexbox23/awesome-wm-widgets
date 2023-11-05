@@ -81,6 +81,10 @@ local function worker(user_args)
         ramgraph_widget
     )
 
+    function ramgraph_widget.hide()
+        popup.visible = false
+    end
+
     ramgraph_widget:buttons(
         awful.util.table.join(
            awful.button({}, 1, function()
@@ -91,7 +95,7 @@ local function worker(user_args)
                 }
 
                 if popup.visible then
-                   popup.visible = not popup.visible
+                   ramgraph_widget.hide()
                 else
                    popup:move_next_to(mouse.current_widget_geometry)
                 end

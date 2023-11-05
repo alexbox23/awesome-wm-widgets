@@ -138,24 +138,6 @@ local function worker(user_args)
     popup:connect_signal("mouse::enter", function() is_update = false end)
     popup:connect_signal("mouse::leave", function() is_update = true end)
 
-    cpugraph_widget:buttons(
-            awful.util.table.join(
-                    awful.button({}, 1, function()
-                        if popup.visible then
-                            popup.visible = not popup.visible
-                            -- When the popup is not visible, stop the timer
-                            popup_timer:stop()
-                        else
-                            popup:move_next_to(mouse.current_widget_geometry)
-                            -- Restart the timer, when the popup becomes visible
-                            -- Emit the signal to start the timer directly and not wait the timeout first
-                            popup_timer:start()
-                            popup_timer:emit_signal("timeout")
-                        end
-                    end)
-            )
-    )
-
     --- By default graph widget goes from left to right, so we mirror it and push up a bit
     cpu_widget = wibox.widget {
         {
@@ -167,6 +149,28 @@ local function worker(user_args)
         color = background_color,
         widget = wibox.container.margin
     }
+
+    function cpu_widget.hide()
+        popup.visible = false
+        -- When the popup is not visible, stop the timer
+        popup_timer:stop()
+    end
+
+    cpugraph_widget:buttons(
+            awful.util.table.join(
+                    awful.button({}, 1, function()
+                        if popup.visible then
+                            cpu_widget.hide()
+                        else
+                            popup:move_next_to(mouse.current_widget_geometry)
+                            -- Restart the timer, when the popup becomes visible
+                            -- Emit the signal to start the timer directly and not wait the timeout first
+                            popup_timer:start()
+                            popup_timer:emit_signal("timeout")
+                        end
+                    end)
+            )
+    )
 
     -- This part runs constantly, also when the popup is closed.
     -- It updates the graph widget in the bar.
